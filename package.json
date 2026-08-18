@@ -1,0 +1,33 @@
+{
+  "name": "pi-deepseek-router",
+  "version": "0.1.0",
+  "description": "DeepSeek-only task-aware routing extension for Pi",
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "deepseek", "router"],
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "files": [
+    "src",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "package.json"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.2"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

@@ -1,0 +1,10 @@
+pi-deepseek-router is a clean-room Pi adapter inspired by the public routing
+logic in yjh051108/dsh-router-standard (MIT):
+https://github.com/yjh051108/dsh-router-standard
+
+The reference project's NOTICE identifies upstream DeepSeek Harness Standard,
+xiaobright/dsh-anchored-standard, and xiaobright/modeltest attribution. This
+extension does not redistribute those projects or the DSH/Cordis runtime.
+
+DeepSeek is a trademark of its respective owner. This project is not endorsed
+by DeepSeek.
