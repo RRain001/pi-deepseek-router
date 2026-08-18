@@ -23,6 +23,10 @@
   <img src="https://img.shields.io/badge/DeepSeek-only-4c8bf5" alt="DeepSeek only">
 </p>
 
+<p align="center">
+  Available on the <a href="https://pi.dev/packages/pi-deepseek-router">Pi Package Gallery</a>.
+</p>
+
 ---
 
 ## What is this?

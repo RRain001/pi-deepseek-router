@@ -15,6 +15,8 @@
 ![Pi extension](https://img.shields.io/badge/Pi-extension-blue)
 ![DeepSeek only](https://img.shields.io/badge/DeepSeek-only-4c8bf5)
 
+Available on the [Pi Package Gallery](https://pi.dev/packages/pi-deepseek-router).
+
 </div>
 
 ---
