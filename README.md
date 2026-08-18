@@ -103,5 +103,16 @@ first-turn event ordering are in [`docs/pi-api-mapping.md`](docs/pi-api-mapping.
 Runtime credential status for this checkout:
 
 ```text
-REAL_DEEPSEEK_RUNTIME_TEST = NOT_RUN_NO_CREDENTIALS
+REAL_DEEPSEEK_RUNTIME_TEST = PASS
 ```
+
+PASS evidence (2026-08-18, `npm run smoke:real`): real DeepSeek-endpoint calls
+through the official Pi SDK against `deepseek/deepseek-v4-flash` and
+`opencode-go/deepseek-v4-flash` verified that (1) the first LLM request of the
+first user task received the core tool subset and a router system prompt that
+lists only core tools, (2) a real tool call by the model restored the full
+original tool set for subsequent requests, (3) weak mode injected the
+ephemeral guidance message into the real request context, and (4) switching to
+a non-DeepSeek model (`opencode-go/qwen3.7-plus`) was a strict no-op with full
+tools and no router section. See `scripts/runtime-smoke.spec.mts` for the
+reproducible script.

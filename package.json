@@ -23,10 +23,11 @@
     "package.json"
   ],
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "smoke:real": "vitest run scripts/runtime-smoke.spec.mts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.84.2"
