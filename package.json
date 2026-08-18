@@ -1,7 +1,7 @@
 {
   "name": "pi-deepseek-router",
-  "version": "0.1.1",
-  "description": "DeepSeek-only task-aware routing extension for Pi",
+  "version": "0.1.2",
+  "description": "Task-aware DeepSeek routing extension for Pi with strict no-op for other models.",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -12,17 +12,28 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/RRain001/pi-deepseek-router/v0.1.2/assets/gallery.png"
   },
   "files": [
     "src",
     "docs",
+    "assets",
     "README.md",
     "README.en.md",
     "LICENSE",
     "NOTICE",
     "package.json"
   ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RRain001/pi-deepseek-router.git"
+  },
+  "homepage": "https://github.com/RRain001/pi-deepseek-router#readme",
+  "bugs": {
+    "url": "https://github.com/RRain001/pi-deepseek-router/issues"
+  },
   "scripts": {
     "test": "vitest run test",
     "typecheck": "tsc -p tsconfig.json --noEmit",

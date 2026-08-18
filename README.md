@@ -80,10 +80,16 @@ opencode-go/deepseek-v4-flash
 
 ## 安装
 
-直接从 GitHub 安装最新发布版：
+已作为 Pi package 发布到 npm（published as a Pi package on npm）。推荐通过 npm 安装：
 
 ```bash
-pi install git:github.com/RRain001/pi-deepseek-router@v0.1.1
+pi install npm:pi-deepseek-router
+```
+
+备用方式 —— 直接从 GitHub 安装固定发布版：
+
+```bash
+pi install git:github.com/RRain001/pi-deepseek-router@v0.1.2
 ```
 
 或跟踪最新 `main` 分支：

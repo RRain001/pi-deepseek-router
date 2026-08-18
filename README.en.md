@@ -98,10 +98,16 @@ It does **not** replace Pi's base system prompt.
 
 ## Install
 
-Install the latest release directly from GitHub:
+Published as a Pi package on npm. The recommended way is via npm:
 
 ```bash
-pi install git:github.com/RRain001/pi-deepseek-router@v0.1.1
+pi install npm:pi-deepseek-router
+```
+
+Alternatively, install a pinned release directly from GitHub:
+
+```bash
+pi install git:github.com/RRain001/pi-deepseek-router@v0.1.2
 ```
 
 Or track the latest `main` branch:
