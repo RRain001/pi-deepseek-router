@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -21,12 +21,19 @@ import extension from "../src/index.js";
  * official Pi SDK while recording the exact LLM request contexts
  * (systemPrompt / tools / guidance messages) the model receives.
  *
- * Run: npm run smoke:real  (requires real credentials in ~/.pi/agent)
+ * Run: npm run smoke:real  (requires real credentials)
  * This file is excluded from the default `npm test` run.
+ *
+ * Configuration (cross-platform defaults, overridable via env):
+ *   PI_AGENT_DIR   → Pi agent dir                 (default: ~/.pi/agent)
+ *   PI_AUTH_PATH   → credentials file             (default: <agentDir>/auth.json)
+ *   PI_MODELS_PATH → models catalog file          (default: <agentDir>/models.json)
  */
 
-const AUTH_PATH = "/Users/rain/.pi/agent/auth.json";
-const MODELS_PATH = "/Users/rain/.pi/agent/models.json";
+const AGENT_DIR = process.env.PI_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+
+const AUTH_PATH = process.env.PI_AUTH_PATH ?? join(AGENT_DIR, "auth.json");
+const MODELS_PATH = process.env.PI_MODELS_PATH ?? join(AGENT_DIR, "models.json");
 
 const TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 /** react mode ("build …") resolves to read/edit/write. */
@@ -139,7 +146,6 @@ describe("REAL DeepSeek runtime smoke", () => {
 			refreshOnCreate: true,
 			allowModelNetwork: false,
 		});
-		expect(runtime.hasConfiguredAuth("sjtu")).toBe(true);
 		for (const { provider, id } of DEEPSEEK_MODELS) {
 			const model = runtime.getModel(provider, id);
 			expect(model, `model ${provider}/${id} should exist`).toBeDefined();

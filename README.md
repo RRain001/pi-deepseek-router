@@ -1,118 +1,480 @@
 # pi-deepseek-router
 
-An independent Pi extension that applies task-aware routing only when the active
-model ID matches:
+<p align="center">
+  <strong>Task-aware routing for DeepSeek models in Pi</strong>
+</p>
+
+<p align="center">
+  A lightweight Pi extension that adapts persona, first-turn tools, and
+  near-field guidance for <code>deepseek*</code> models — while leaving every
+  other model untouched.
+</p>
+
+<p align="center">
+  <a href="https://github.com/RRain001/pi-deepseek-router/releases">
+    <img src="https://img.shields.io/github/v/release/RRain001/pi-deepseek-router?display_name=tag" alt="Release">
+  </a>
+  <a href="https://github.com/RRain001/pi-deepseek-router/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/RRain001/pi-deepseek-router" alt="License">
+  </a>
+  <a href="https://github.com/RRain001/pi-deepseek-router">
+    <img src="https://img.shields.io/badge/Pi-extension-blue" alt="Pi extension">
+  </a>
+  <img src="https://img.shields.io/badge/DeepSeek-only-4c8bf5" alt="DeepSeek only">
+</p>
+
+---
+
+## What is this?
+
+`pi-deepseek-router` is a task-aware routing extension for
+[Pi](https://github.com/earendil-works/pi).
+
+It activates **only** when the current model ID starts with:
+
+```ts
+deepseek
+```
+
+The exact gate is:
 
 ```ts
 model.id.toLowerCase().startsWith("deepseek")
 ```
 
-Every other model is intentionally untouched. The extension does not inspect
-provider names and does not use a deny-list.
+Examples:
+
+| Model ID | Router |
+| --- | --- |
+| `deepseek-v4-flash` | ✅ Enabled |
+| `deepseek-v4-pro` | ✅ Enabled |
+| `deepseek-chat` | ✅ Enabled |
+| `deepseek-reasoner` | ✅ Enabled |
+| `gpt-*` | ❌ No-op |
+| `claude-*` | ❌ No-op |
+| `gemini-*` | ❌ No-op |
+| `qwen-*` | ❌ No-op |
+| `kimi-*` | ❌ No-op |
+
+Provider names are intentionally ignored.
+
+That means a model such as:
+
+```text
+opencode-go/deepseek-v4-flash
+```
+
+is supported because its **model ID** is `deepseek-v4-flash`.
+
+---
+
+## Why?
+
+Different coding tasks benefit from different interaction styles.
+
+This extension classifies the first real user task and selects one of four
+routing modes:
+
+| Mode | Typical task | Behavior |
+| --- | --- | --- |
+| `spec` | debugging, fixing, reviewing | inspect-first, conservative |
+| `mixed` | mixed implementation / analysis | balanced |
+| `react` | building, creating, implementing | hands-on production |
+| `weak` | ambiguous tasks | lightweight task classification + guidance |
+
+The router can then adjust:
+
+- the DeepSeek-specific persona;
+- the first-turn tool surface;
+- ephemeral near-field guidance;
+- tool promotion after the first real tool call.
+
+It does **not** replace Pi's base system prompt.
+
+---
 
 ## Install
 
-For a local checkout:
+Install the latest release directly from GitHub:
 
 ```bash
-pi install ./pi-deepseek-router
+pi install git:github.com/RRain001/pi-deepseek-router@v0.1.1
 ```
 
-For a one-run smoke test:
-
-```bash
-pi -e ./pi-deepseek-router/src/index.ts
-```
-
-The current release (v0.1.0) can be installed directly from Git:
-
-```bash
-pi install git:github.com/RRain001/pi-deepseek-router@v0.1.0
-```
-
-Or from the main branch:
+Or track the latest `main` branch:
 
 ```bash
 pi install git:github.com/RRain001/pi-deepseek-router@main
 ```
 
-## Behavior
+For local development:
 
-- `spec`, `mixed`, `react`, and `weak` modes are derived from the first real
-  user task (interactive or RPC input). Extension-generated input never
-  classifies a task.
-- `weak` uses model-family persona selection and ephemeral near-field guidance.
-- The first LLM request of the first user task receives a conservative core
-  tool subset, resolved from Pi's actual catalog. Routing happens in the public
-  `input` hook — strictly before `before_agent_start` and before the agent turn
-  starts — so the reduction reaches the first request (verified by real
-  AgentSession lifecycle tests, not just unit tests).
-- The first attempted or completed tool call restores the session's original
-  active tool set; later requests keep the full set.
-- If the first turn makes no tool call, the reduction is undone before the
-  second user task starts; it never drifts into a second task.
-- Switching away from DeepSeek restores the original tools and disables all
-  router behavior. Switching back snapshots the then-current tools again and
-  routes the next real user input.
-- The original Pi system prompt remains intact; the extension appends one
-  marked `## DeepSeek Router` section per request.
+```bash
+git clone https://github.com/RRain001/pi-deepseek-router.git
+cd pi-deepseek-router
+npm install
+pi install .
+```
 
-Commands:
+For a one-run local test:
+
+```bash
+pi -e ./src/index.ts
+```
+
+---
+
+## How it works
+
+For a DeepSeek model, the first real user input follows approximately:
+
+```text
+user input
+   │
+   ▼
+DeepSeek model gate
+   │
+   ▼
+task classification
+   │
+   ├── spec
+   ├── mixed
+   ├── react
+   └── weak
+   │
+   ▼
+first-turn core tools
+   │
+   ▼
+DeepSeek persona
+   │
+   ▼
+LLM request
+   │
+   ▼
+first real tool call
+   │
+   ▼
+restore original full tool set
+```
+
+For every non-DeepSeek model:
+
+```text
+input
+  │
+  ▼
+model.id startsWith("deepseek")?
+  │
+  └── no ──► strict no-op
+```
+
+---
+
+## First-turn tool routing
+
+The first LLM request of the first real DeepSeek task receives a conservative
+tool subset appropriate for the selected mode.
+
+For example, a build task routed to `react` may begin with:
+
+```text
+read
+edit
+write
+```
+
+instead of exposing the complete tool catalog immediately.
+
+After the first actual tool call, the extension restores the original tool set.
+
+If the first turn does not call a tool, the reduced tool set is restored before
+the second real user task begins.
+
+This prevents first-turn routing state from leaking into later tasks.
+
+---
+
+## Ephemeral guidance
+
+`weak` mode can inject a small near-field guidance message into the current LLM
+request.
+
+The message is:
+
+- request-local;
+- hidden from the normal conversation UI;
+- not inserted as a real user message;
+- not persisted into the user's conversation history.
+
+---
+
+## Model switching
+
+Model switching is handled explicitly.
+
+```text
+non-DeepSeek → DeepSeek
+```
+
+The router activates on the next real user input and snapshots the current tool
+set.
+
+```text
+DeepSeek → non-DeepSeek
+```
+
+The original tool set is restored and router behavior is disabled.
+
+```text
+DeepSeek → DeepSeek
+```
+
+Router state is preserved where appropriate, including an explicit mode
+override.
+
+---
+
+## Commands
+
+Show current router state:
 
 ```text
 /deepseek-router-status
-/deepseek-router-mode auto|spec|weak|mixed|react|0-100|0.0-1.0
 ```
 
-Commands are visible for all models, but they are strict no-ops for non-DeepSeek
-models and report:
+Example:
 
 ```text
-reason=model-id-does-not-start-with-deepseek
+enabled=true model=deepseek-v4-flash mode=weak band=weak
+complexity=simple toolsPromoted=false firstTurnApplied=true override=no
 ```
 
-## Scope exclusions
+Set the routing mode manually:
 
-This first version does not implement `dev_mode_subagent`. Pi has no public
-equivalent of DSH `ctx.llm.stream` for an isolated mode-specific LLM context,
-so the extension does not call undocumented/private APIs.
-
-The extension also does not modify Pi core, provider payloads, session history,
-or user messages.
-
-## Development
-
-```bash
-npm install
-npm test
-npm run typecheck
-npm run build
+```text
+/deepseek-router-mode auto
+/deepseek-router-mode spec
+/deepseek-router-mode weak
+/deepseek-router-mode mixed
+/deepseek-router-mode react
 ```
 
-The test suite covers the gate, strict non-DeepSeek no-op, router core, persona
-insertion, model switching, tool promotion, per-session state boundaries, and
-source handling — plus a real-lifecycle suite that drives an actual Pi
-`AgentSession` (official SDK `createAgentSession` + inline extension factory)
-with a scripted model runtime and asserts on the LLM request contexts the model
-would receive (`input` → `before_agent_start` → first LLM request ordering,
-first tool call promotion, second-user-task behavior, model switches, session
-isolation). Provenance and the reference-license boundary are documented in
-[`docs/provenance.md`](docs/provenance.md); Pi API mapping and the verified
-first-turn event ordering are in [`docs/pi-api-mapping.md`](docs/pi-api-mapping.md).
+Numeric modes are also supported:
 
-Runtime credential status for this checkout:
+```text
+/deepseek-router-mode 0
+/deepseek-router-mode 30
+/deepseek-router-mode 100
+/deepseek-router-mode 0.3
+```
+
+For non-DeepSeek models these commands do not modify agent behavior.
+
+---
+
+## Strict non-DeepSeek no-op
+
+A core design requirement of this project is:
+
+> Models whose ID does not begin with `deepseek` must remain untouched.
+
+The test suite verifies that for non-DeepSeek models the extension does not
+modify:
+
+- system prompts;
+- request messages;
+- active tools;
+- router state;
+- near-field guidance.
+
+Switching from DeepSeek to another model also restores the original tool set.
+
+---
+
+## Verified with real DeepSeek runtimes
+
+The extension has been tested both with Pi lifecycle tests and real model
+endpoints.
+
+### Real runtime smoke
 
 ```text
 REAL_DEEPSEEK_RUNTIME_TEST = PASS
 ```
 
-PASS evidence (2026-08-18, `npm run smoke:real`): real DeepSeek-endpoint calls
-through the official Pi SDK against `deepseek/deepseek-v4-flash` and
-`opencode-go/deepseek-v4-flash` verified that (1) the first LLM request of the
-first user task received the core tool subset and a router system prompt that
-lists only core tools, (2) a real tool call by the model restored the full
-original tool set for subsequent requests, (3) weak mode injected the
-ephemeral guidance message into the real request context, and (4) switching to
-a non-DeepSeek model (`opencode-go/qwen3.7-plus`) was a strict no-op with full
-tools and no router section. See `scripts/runtime-smoke.spec.mts` for the
-reproducible script.
+Verified on August 18, 2026 with:
+
+```text
+deepseek/deepseek-v4-flash
+opencode-go/deepseek-v4-flash
+```
+
+The instrumented real-runtime smoke verified:
+
+1. the first request received the reduced core tool set;
+2. the actual system prompt contained the DeepSeek router persona and only the
+   corresponding core tools;
+3. the real model executed a tool call;
+4. the following request received the restored full tool set;
+5. weak-mode guidance reached the real request context;
+6. switching to `opencode-go/qwen3.7-plus` produced a strict no-op.
+
+Run the credentialed smoke locally with:
+
+```bash
+npm run smoke:real
+```
+
+See:
+
+```text
+scripts/runtime-smoke.spec.mts
+```
+
+The real-endpoint smoke is intentionally excluded from ordinary `npm test`.
+
+---
+
+## Tests
+
+Run the normal test suite:
+
+```bash
+npm test
+```
+
+Type checking:
+
+```bash
+npm run typecheck
+```
+
+Build:
+
+```bash
+npm run build
+```
+
+The test suite includes real Pi `AgentSession` lifecycle coverage using the
+official Pi SDK and a scripted `ModelRuntime`.
+
+It verifies:
+
+- first-turn routing timing;
+- first LLM request tool context;
+- system-prompt/tool consistency;
+- first-tool promotion;
+- no-tool-call recovery;
+- interactive and RPC inputs;
+- extension-generated input handling;
+- session resume behavior;
+- model switching;
+- session isolation;
+- weak-mode guidance;
+- strict non-DeepSeek no-op behavior.
+
+---
+
+## Real-runtime smoke configuration
+
+By default the smoke test reads Pi configuration from:
+
+```text
+~/.pi/agent
+```
+
+You can override the Pi agent directory:
+
+```bash
+PI_AGENT_DIR=/path/to/pi/agent npm run smoke:real
+```
+
+Or override individual files:
+
+```bash
+PI_AUTH_PATH=/path/to/auth.json \
+PI_MODELS_PATH=/path/to/models.json \
+npm run smoke:real
+```
+
+Credentials are never included in this repository.
+
+---
+
+## Design boundaries
+
+This project intentionally does not:
+
+- modify Pi core;
+- patch provider payloads;
+- use undocumented/private Pi APIs;
+- persist router guidance into user conversation history;
+- adapt models that do not begin with `deepseek`;
+- implement the original DSH `dev_mode_subagent`.
+
+The extension uses Pi's public extension API.
+
+---
+
+## Project structure
+
+```text
+pi-deepseek-router/
+├── src/
+│   ├── index.ts
+│   ├── deepseek-gate.ts
+│   ├── router-core.ts
+│   ├── router-state.ts
+│   └── guidance.ts
+├── test/
+│   └── lifecycle-real.test.ts
+├── scripts/
+│   └── runtime-smoke.spec.mts
+├── docs/
+│   ├── pi-api-mapping.md
+│   └── provenance.md
+├── README.md
+├── NOTICE
+└── LICENSE
+```
+
+---
+
+## Provenance
+
+This project is an independent Pi port/adaptation of routing concepts and
+selected logic from:
+
+- [`yjh051108/dsh-router-standard`](https://github.com/yjh051108/dsh-router-standard)
+
+Referenced concepts include:
+
+- task keyword classification;
+- `spec` / `mixed` / `react` / `weak` behavior bands;
+- persona selection;
+- near-field guidance semantics.
+
+The original project is MIT licensed.
+
+The relevant upstream copyright and license notice is retained in
+[`NOTICE`](NOTICE).
+
+See [`docs/provenance.md`](docs/provenance.md) for details.
+
+---
+
+## License
+
+MIT.
+
+See [`LICENSE`](LICENSE).
+
+---
+
+## Disclaimer
+
+DeepSeek is a trademark of its respective owner.
+
+This project is an independent community extension and is not affiliated with
+or endorsed by DeepSeek or the Pi project.
