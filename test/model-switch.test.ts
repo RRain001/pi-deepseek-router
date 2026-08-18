@@ -44,8 +44,8 @@ describe("model switching and prompt behavior", () => {
 		const pro = { id: "deepseek-v4-pro", provider: "custom" };
 		const ctx = makeContext(flash, manager);
 
-		const mode = pi.commands.get("deepseek-router-mode");
-		await mode?.("react", ctx);
+		const router = pi.commands.get("router");
+		await router?.("react", ctx);
 		const proCtx = makeContext(pro, manager);
 		await pi.emit("model_select", { type: "model_select", model: pro, previousModel: flash, source: "set" }, proCtx);
 		await pi.emit("input", inputEvent("please explain the architecture"), proCtx);

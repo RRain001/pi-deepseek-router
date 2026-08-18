@@ -66,10 +66,13 @@ opencode-go/deepseek-v4-flash
 | `Spec` | 调试、修复、审查 | 先探查后行动，保守 |
 | `React` | 构建、创建、实现 | 直接产出 |
 
-> `weak` 是 `Auto` 在任务类型模糊时的**内部路由带**，不作为用户级模式展示；
-> `mixed` 是上游明确标记的实验带（explicit opt-in experimental band）。两者以及
-> 数值模式（0-100 / 0.0-1.0）只能通过 legacy 命令 `/deepseek-router-mode`
-> 显式设置，普通 UI 不展示。
+> `weak` 是 `Auto` 在任务类型模糊时的**内部路由带**：
+>
+> - build → react
+> - fix → spec
+> - ambiguous → 内部 weak 路由
+>
+> `weak` / `mixed` 以及数值模式不属于用户 UI，不会通过任何公开命令暴露。
 
 路由器可以调整：
 
@@ -189,7 +192,7 @@ write
 
 ## 近场 guidance
 
-当自动分类或 legacy 设置落入 `weak` 带时，可以向当前 LLM 请求注入一条小型近场
+当自动分类落入 `weak` 内部带时，可以向当前 LLM 请求注入一条小型近场
 guidance 消息。
 
 该消息：
@@ -239,7 +242,7 @@ DeepSeek → DeepSeek
 /router
 ```
 
-弹出模式选择器，只展示三个用户级模式：
+弹出模式选择器，展示四个入口，与参数补全完全一致：
 
 ```text
 DeepSeek Router · deepseek-v4-flash
@@ -248,10 +251,14 @@ Current: Auto → React
 Auto — Automatic routing (recommended)
 Spec — Debug / review / maintenance
 React — Build / implement / modify
+Status — Show current router status
 ```
 
 标题显示当前状态：配置控制（`Auto` / `Spec` / `React`）以及实际落到的 band。
-如果当前是 `Auto`，会显示 `Auto → <实际 band>`。
+如果当前是 `Auto`，会显示 `Auto → <实际 band>`；显式控制显示
+`Current: Spec` / `Current: React`；尚未有首任务时是 `Current: Auto`。
+
+选择 `Status` 只显示 `/router status` 的简化状态，不改变任何路由状态。
 
 ### 带参数
 
@@ -297,18 +304,6 @@ Current model ID does not start with "deepseek".
 
 严格 no-op 语义保持不变。
 
-### Legacy aliases（向后兼容，已保留）
-
-旧命令作为 backwards-compatible aliases 保留，主文档不再宣传；未来 major/minor
-版本可能移除：
-
-- `/deepseek-router-status` — 详细 debug 状态（含 `firstTurnApplied`、
-  `toolsPromoted`、`override` 等内部字段）；
-- `/deepseek-router-mode` — 完整模式解析，仍支持 `auto`、`spec`、`weak`、
-  `mixed`、`react` 以及数值模式 `0-100` / `0.0-1.0`。
-
-对非 DeepSeek 模型，这些命令不会改变任何代理行为。
-
 ---
 
 ## 严格非 DeepSeek no-op
@@ -329,24 +324,21 @@ Current model ID does not start with "deepseek".
 
 ## Troubleshooting
 
-### 命令出现 `:1` / `:2` 后缀
+### `/router:1` / `/router:2` 后缀
 
-如果命令列表里出现 `deepseek-router-status:1`、`deepseek-router-mode:1` 以及
-对应的 `:2` 版本，说明**同一个扩展被加载了不止一次**。Pi 对重复命令名的处理是
-保留全部并追加数字后缀（load order），而不是报错——因此这不是插件自身重复
-`registerCommand`，本扩展每个命令只注册一次。
+如果 `/router:1` 和 `/router:2` 出现，说明扩展从多个来源被加载了。Pi 对同名命令
+的处理是保留全部并追加数字后缀（load order），而不是报错——因此这不是插件自身
+重复 `registerCommand`，本扩展每个命令只注册一次。
 
-重复来自同一扩展的多个安装源同时存在：npm、git 与本地路径安装彼此视为不同包，
-不会互相去重。检查方式：
+检查已安装的来源并移除重复项：
 
 ```bash
-pi list        # 列出已安装包及其来源（user / project）
-pi config      # 查看每个包实际启用的资源，Tab 切换 global / project
+pi list                     # 列出已安装包及其来源（user / project）
+pi config                   # 查看每个包实际启用的资源，Tab 切换 global / project
+pi remove <duplicate-source> # 移除重复的安装源（例如 git:… 或本地路径）
 ```
 
-找到重复条目后，在 `~/.pi/agent/settings.json`（全局）或 `.pi/settings.json`
-（项目）的 `packages` 中只保留一份安装（例如保留 `npm:pi-deepseek-router`，
-移除 git 或本地路径安装），然后重启 Pi。
+`pi list` 会显示每个包的来源（npm / git / 本地路径）；保留唯一来源后重启 Pi 即可。
 
 ---
 

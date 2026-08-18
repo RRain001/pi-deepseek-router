@@ -324,7 +324,7 @@ describe("real AgentSession lifecycle (first-turn routing timing)", () => {
 		tempDirs.push(harness.dir);
 
 		// Explicit override: react (a "please explain…" task would classify weak).
-		await harness.session.prompt("/deepseek-router-mode react");
+		await harness.session.prompt("/router react");
 		expect(harness.requests).toHaveLength(0);
 		expect(harness.session.getActiveToolNames()).toEqual(REACT_CORE);
 
@@ -337,6 +337,28 @@ describe("real AgentSession lifecycle (first-turn routing timing)", () => {
 		expect(harness.requests[1]!.tools).toEqual(TOOL_NAMES);
 		// The override survived the DeepSeek → DeepSeek switch (react persona).
 		expect(harness.requests[1]!.systemPrompt).toContain("hands-on");
+	});
+
+	it("G: /router status is read-only and never opens/resets routing in a real session", async () => {
+		const harness = await createHarness(makeModel("deepseek-v4-flash"), [
+			{ stopReason: "stop", text: "done" },
+		]);
+		tempDirs.push(harness.dir);
+
+		// /router status must not mutate anything: the next real task still
+		// routes normally under auto (weak band for this ambiguous task).
+		await harness.session.prompt("/router status");
+		expect(harness.requests).toHaveLength(0);
+		expect(harness.session.getActiveToolNames()).toEqual(TOOL_NAMES);
+
+		// No-arg /router in a non-interactive (print) session is safe even if
+		// the selector cannot render; it must not change tools either.
+		await harness.session.prompt("/router");
+
+		await harness.session.prompt("please inspect this");
+		expect(harness.requests).toHaveLength(1);
+		expect(harness.requests[0]!.tools).toEqual(SPEC_CORE); // weak core, auto intact
+		expect(harness.requests[0]!.systemPrompt).toContain("pi-deepseek-router:start");
 	});
 
 	it("F: sessions do not share first-turn routing state", async () => {

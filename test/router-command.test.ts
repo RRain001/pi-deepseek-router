@@ -9,6 +9,7 @@ const SELECTOR_OPTIONS = [
 	"Auto — Automatic routing (recommended)",
 	"Spec — Debug / review / maintenance",
 	"React — Build / implement / modify",
+	"Status — Show current router status",
 ];
 
 function setup(selectQueue: Array<string | undefined> = []) {
@@ -22,7 +23,7 @@ function setup(selectQueue: Array<string | undefined> = []) {
 }
 
 describe("/router command", () => {
-	it("no-arg opens a selector with the three user modes and a stateful title", async () => {
+	it("no-arg opens a selector with Auto/Spec/React/Status and a stateful title", async () => {
 		const { pi, ctx } = setup();
 		const router = pi.commands.get("router");
 		expect(router).toBeDefined();
@@ -38,6 +39,19 @@ describe("/router command", () => {
 		expect(pi.selectCalls[0]!.options).toEqual(SELECTOR_OPTIONS);
 	});
 
+	it("selector and argument completions expose the same four entries in the same order", async () => {
+		const { pi } = setup();
+		const completions = pi.commandOptions.get("router")!.getArgumentCompletions?.("") as Array<{ value: string }>;
+		// Auto → Spec → React → Status (lowercase completions, label order identical).
+		expect(SELECTOR_OPTIONS.map((option) => option.split(" ")[0]!.toLowerCase())).toEqual([
+			"auto",
+			"spec",
+			"react",
+			"status",
+		]);
+		expect(completions.map((completion) => completion.value)).toEqual(["auto", "spec", "react", "status"]);
+	});
+
 	it("selector -> auto clears the override and keeps automatic routing", async () => {
 		const { pi, ctx } = setup(["Auto — Automatic routing (recommended)"]);
 		const router = pi.commands.get("router")!;
@@ -47,8 +61,7 @@ describe("/router command", () => {
 		expect(pi.getActiveTools()).toEqual(REACT_CORE);
 
 		// Force a spec override first, then switch back to auto via the selector.
-		const legacy = pi.commands.get("deepseek-router-mode")!;
-		await legacy("spec", ctx);
+		await router("spec", ctx);
 		expect(pi.getActiveTools()).toEqual(SPEC_CORE);
 
 		await router("", ctx);
@@ -65,6 +78,44 @@ describe("/router command", () => {
 		await router("status", ctx);
 		expect(pi.notifications.at(-1)).toContain("control=auto");
 		expect(pi.notifications.at(-1)).toContain("activeBand=react");
+	});
+
+	it("selector -> Status shows the same status as /router status without changing state", async () => {
+		const { pi, ctx } = setup(["Status — Show current router status"]);
+		const router = pi.commands.get("router")!;
+
+		// Session is routed (react core active, mode fixed by the first task).
+		await pi.emit("input", inputEvent("build a new command-line tool"), ctx);
+		expect(pi.getActiveTools()).toEqual(REACT_CORE);
+		const toolsBefore = pi.getActiveTools();
+
+		await router("", ctx);
+		// 1. selector closed after one call; 2. status shown; 3. nothing mutated.
+		expect(pi.selectCalls).toHaveLength(1);
+		expect(pi.notifications.at(-1)).toContain("enabled=true");
+		expect(pi.notifications.at(-1)).toContain("control=auto");
+		expect(pi.notifications.at(-1)).toContain("activeBand=react");
+		expect(pi.notifications.at(-1)).toContain("tools=core");
+		expect(pi.getActiveTools()).toEqual(toolsBefore);
+
+		// The view-only status must equal `/router status` output exactly.
+		const fromSelector = pi.notifications.at(-1);
+		await router("status", ctx);
+		expect(pi.notifications.at(-1)).toBe(fromSelector);
+		expect(pi.selectCalls).toHaveLength(1); // no second selector
+		expect(pi.getActiveTools()).toEqual(toolsBefore); // still untouched
+	});
+
+	it("selector -> Status does not promote tools or touch promotion flags", async () => {
+		const { pi, ctx } = setup(["Status — Show current router status"]);
+		const router = pi.commands.get("router")!;
+
+		await router("", ctx);
+		expect(pi.selectCalls).toHaveLength(1);
+		expect(pi.notifications.at(-1)).toContain("enabled=true");
+		expect(pi.notifications.at(-1)).toContain("tools=full"); // no first turn yet → full
+		expect(pi.setCalls).toEqual([]); // active tools never changed
+		expect(pi.notifications.at(-1)).not.toContain("firstTurnApplied");
 	});
 
 	it("selector -> spec applies the spec control", async () => {
@@ -123,19 +174,6 @@ describe("/router command", () => {
 		expect(pi.getActiveTools()).toEqual(REACT_CORE);
 	});
 
-	it("rejects weak/mixed/numeric through the user-facing command", async () => {
-		const { pi, ctx } = setup();
-		const router = pi.commands.get("router")!;
-
-		await router("weak", ctx);
-		await router("mixed", ctx);
-		await router("30", ctx);
-		await router("0.3", ctx);
-		expect(pi.selectCalls).toHaveLength(0);
-		expect(pi.notifications.filter((message) => message.includes("invalid mode"))).toHaveLength(4);
-		expect(pi.setCalls).toEqual([]);
-	});
-
 	it("status shows only the user-facing fields", async () => {
 		const { pi, ctx } = setup();
 		const router = pi.commands.get("router")!;
@@ -168,6 +206,19 @@ describe("/router command", () => {
 		expect(message).toContain("control=react");
 		expect(message).toContain("activeBand=react");
 		expect(message).toContain("tools=full");
+	});
+
+	it("/router status output and selector Status output are the same user-facing status", async () => {
+		const { pi, ctx } = setup();
+		const router = pi.commands.get("router")!;
+
+		await pi.emit("input", inputEvent("please inspect this"), ctx);
+		await router("status", ctx);
+		const viaArgs = pi.notifications.at(-1);
+
+		pi.selectQueue.push("Status — Show current router status");
+		await router("", ctx);
+		expect(pi.notifications.at(-1)).toBe(viaArgs);
 	});
 
 	it("completions return only auto/spec/react/status with descriptions", async () => {
@@ -208,31 +259,22 @@ describe("/router command", () => {
 		}
 	});
 
-	it("legacy aliases remain compatible and keep weak/mixed/debug behavior", async () => {
+	it("legacy commands no longer exist", async () => {
+		const { pi } = setup();
+		expect(pi.commands.has("deepseek-router-status")).toBe(false);
+		expect(pi.commands.has("deepseek-router-mode")).toBe(false);
+		// The only public command is /router.
+		expect([...pi.commands.keys()]).toEqual(["router"]);
+	});
+
+	it("weak/mixed/numeric cannot be set through any public command", async () => {
 		const { pi, ctx } = setup();
-		const status = pi.commands.get("deepseek-router-status");
-		const mode = pi.commands.get("deepseek-router-mode");
-		expect(status).toBeDefined();
-		expect(mode).toBeDefined();
+		const router = pi.commands.get("router")!;
 
-		// weak / mixed overrides still work through the legacy alias.
-		await mode?.("weak", ctx);
-		expect(pi.notifications.at(-1)).toContain("mode=weak");
-		await mode?.("mixed", ctx);
-		expect(pi.notifications.at(-1)).toContain("mode=0.30");
-
-		// Numeric legacy forms still parse (0-100 and 0.0-1.0).
-		await mode?.("50", ctx);
-		expect(pi.notifications.at(-1)).toContain("mode=0.50");
-		await mode?.("0.25", ctx);
-		expect(pi.notifications.at(-1)).toContain("mode=0.25");
-
-		// Legacy status keeps detailed debug fields for power users.
-		await status?.("", ctx);
-		const detail = pi.notifications.at(-1)!;
-		expect(detail).toContain("enabled=true");
-		expect(detail).toContain("mode=0.25");
-		expect(detail).toContain("firstTurnApplied=");
-		expect(detail).toContain("toolsPromoted=");
+		for (const token of ["weak", "mixed", "30", "0.3", "100"]) {
+			await router(token, ctx);
+			expect(pi.notifications.at(-1)).toContain("invalid mode");
+		}
+		expect(pi.setCalls).toEqual([]);
 	});
 });

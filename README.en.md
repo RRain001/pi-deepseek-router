@@ -84,11 +84,14 @@ user-level controls:
 | `Spec` | debugging, fixing, reviewing | inspect-first, conservative |
 | `React` | building, creating, implementing | hands-on production |
 
-> `weak` is the **internal routing band** `Auto` uses for ambiguous tasks; it is
-> not a user-level mode. `mixed` is an upstream-marked experimental band
-> (explicit opt-in). Both, plus numeric modes (`0-100` / `0.0-1.0`), are only
-> settable through the legacy `/deepseek-router-mode` alias and are not shown in
-> the normal UI.
+> `weak` is the **internal routing band** `Auto` uses for ambiguous tasks:
+>
+> - build → react
+> - fix → spec
+> - ambiguous → internal weak routing
+>
+> `weak` / `mixed` and numeric modes are not part of the user UI and are not
+exposed through any public command.
 
 The router can then adjust:
 
@@ -210,9 +213,8 @@ This prevents first-turn routing state from leaking into later tasks.
 
 ## Ephemeral guidance
 
-When automatic classification (or a legacy setting) lands in the `weak` band,
-the router can inject a small near-field guidance message into the current LLM
-request.
+When automatic classification lands in the `weak` internal band, the router
+can inject a small near-field guidance message into the current LLM request.
 
 The message is:
 
@@ -263,7 +265,8 @@ Normal users only need to remember one command:
 /router
 ```
 
-Opens a mode selector with exactly three user-level modes:
+Opens a mode selector whose four entries exactly match the argument
+completions:
 
 ```text
 DeepSeek Router · deepseek-v4-flash
@@ -272,10 +275,14 @@ Current: Auto → React
 Auto — Automatic routing (recommended)
 Spec — Debug / review / maintenance
 React — Build / implement / modify
+Status — Show current router status
 ```
 
 The title shows the current state: the configured control (`Auto` / `Spec` /
-`React`) and the actual band. Under `Auto` it shows `Auto → <actual band>`.
+`React`) and the actual band. Under `Auto` it shows `Auto → <actual band>`;
+an explicit control shows `Current: Spec` / `Current: React`; before the
+first task it shows `Current: Auto`. Choosing `Status` only displays the
+simplified `/router status` output and never mutates router state.
 
 ### With arguments
 
@@ -323,19 +330,6 @@ Current model ID does not start with "deepseek".
 
 The strict no-op semantics are unchanged.
 
-### Legacy aliases (backwards-compatible, retained)
-
-The old commands remain as backwards-compatible aliases but are no longer
-promoted in the main documentation; they may be removed in a future
-major/minor version:
-
-- `/deepseek-router-status` — detailed debug status (includes internal fields
-  such as `firstTurnApplied`, `toolsPromoted`, `override`);
-- `/deepseek-router-mode` — full mode parsing, still accepting `auto`, `spec`,
-  `weak`, `mixed`, `react`, and numeric modes `0-100` / `0.0-1.0`.
-
-For non-DeepSeek models these commands do not modify agent behavior.
-
 ---
 
 ## Strict non-DeepSeek no-op
@@ -359,28 +353,24 @@ Switching from DeepSeek to another model also restores the original tool set.
 
 ## Troubleshooting
 
-### Commands appear with `:1` / `:2` suffixes
+### `/router:1` / `/router:2` suffixes
 
-If the command list shows `deepseek-router-status:1`, `deepseek-router-mode:1`
-and the matching `:2` variants, the **same extension is loaded more than
-once**. Pi keeps all duplicate command names and assigns numeric invocation
-suffixes in load order instead of failing — so this is not the extension itself
-calling `registerCommand` twice (each command is registered exactly once).
+If `/router:1` and `/router:2` appear, the extension is loaded from multiple
+sources. Pi keeps all duplicate command names and assigns numeric invocation
+suffixes in load order instead of failing — so this is not the extension
+itself calling `registerCommand` twice (each command is registered exactly
+once).
 
-The duplication comes from having several installation sources of the same
-extension active at the same time: npm, git, and local-path installs are
-treated as distinct packages and are not deduplicated against each other. To
-locate the duplicates:
+Inspect the installed sources and remove the duplicate:
 
 ```bash
-pi list        # list installed packages and their sources (user / project)
-pi config      # inspect which resources each package actually enables; Tab switches global / project
+pi list                      # list installed packages and their sources (user / project)
+pi config                    # inspect which resources each package enables; Tab switches global / project
+pi remove <duplicate-source> # remove the duplicate source (e.g. git:… or a local path)
 ```
 
-Then keep only one installation: edit `packages` in
-`~/.pi/agent/settings.json` (global) or `.pi/settings.json` (project) to retain
-a single source (for example keep `npm:pi-deepseek-router` and remove the git
-or local-path install), and restart Pi.
+`pi list` shows each package's source (npm / git / local path); keep a single
+source and restart Pi.
 
 ---
 

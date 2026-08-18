@@ -25,17 +25,18 @@ describe("non-DeepSeek strict no-op", () => {
 		expect(pi.getActiveTools()).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 		expect(pi.setCalls).toEqual([]);
 
-		const status = pi.commands.get("deepseek-router-status");
-		expect(status).toBeDefined();
+		// The only public command is /router; it must not enable or mutate anything.
+		expect([...pi.commands.keys()]).toEqual(["router"]);
+		const router = pi.commands.get("router")!;
 		const notifications: string[] = [];
 		(ctx.ui as any).notify = (message: string) => notifications.push(message);
-		await status?.("", ctx);
-		expect(notifications[0]).toContain("enabled=false");
-		expect(notifications[0]).toContain("reason=model-id-does-not-start-with-deepseek");
-
-		const mode = pi.commands.get("deepseek-router-mode");
-		await mode?.("react", ctx);
+		await router("", ctx);
+		await router("react", ctx);
+		expect(notifications).toHaveLength(2);
+		for (const message of notifications) {
+			expect(message).toContain("DeepSeek Router");
+			expect(message).toContain("Disabled");
+		}
 		expect(pi.setCalls).toEqual([]);
-		expect(notifications.at(-1)).toContain("reason=model-id-does-not-start-with-deepseek");
 	});
 });
