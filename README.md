@@ -46,15 +46,18 @@ Examples:
 
 | Model ID | Router |
 | --- | --- |
-| `deepseek-v4-flash` | ✅ Enabled |
-| `deepseek-v4-pro` | ✅ Enabled |
-| `deepseek-chat` | ✅ Enabled |
-| `deepseek-reasoner` | ✅ Enabled |
+| `deepseek-v4-flash` | ✅ Runtime verified |
 | `gpt-*` | ❌ No-op |
 | `claude-*` | ❌ No-op |
 | `gemini-*` | ❌ No-op |
 | `qwen-*` | ❌ No-op |
 | `kimi-*` | ❌ No-op |
+
+The router activates based on the model ID prefix rule
+`model.id.toLowerCase().startsWith("deepseek")`. However, only
+`deepseek-v4-flash` is currently listed as runtime-verified. Other DeepSeek
+model IDs may match the routing rule but are not claimed as tested or
+supported here.
 
 Provider names are intentionally ignored.
 
