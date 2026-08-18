@@ -1,5 +1,25 @@
+# Dependencies / build output
 node_modules/
 dist/
 coverage/
+
+# OS noise
 .DS_Store
+
+# Local Pi session state
 .pi/
+
+# Local environment / credentials
+.env
+.env.*
+!.env.example
+auth.json
+models.json
+credentials.json
+credentials*.json
+
+# Private keys / certificates
+*.pem
+*.key
+*.p12
+*.pfx
