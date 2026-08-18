@@ -101,8 +101,14 @@ pi -e ./src/index.ts
 pi install ./pi-deepseek-router
 ```
 
-发布到 Git 后可使用 Pi 的标准形式：
+发布到 Git 后可使用 Pi 的标准形式（当前发布版 v0.1.0）：
 
 ```bash
-pi install git:github.com/<owner>/pi-deepseek-router@<tag-or-commit>
+pi install git:github.com/RRain001/pi-deepseek-router@v0.1.0
+```
+
+或使用任意 tag / commit：
+
+```bash
+pi install git:github.com/RRain001/pi-deepseek-router@main
 ```
