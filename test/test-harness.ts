@@ -72,6 +72,10 @@ export function agentStartEvent(prompt: string, systemPrompt = "PI BASE PROMPT")
 	};
 }
 
+export function inputEvent(text: string, source: "interactive" | "rpc" | "extension" = "interactive"): any {
+	return { type: "input", text, source };
+}
+
 export function userMessage(text: string): any {
 	return { role: "user", content: text, timestamp: Date.now() };
 }

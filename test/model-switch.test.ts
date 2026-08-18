@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FakePi, agentStartEvent, makeContext } from "./test-harness.js";
+import { FakePi, agentStartEvent, inputEvent, makeContext } from "./test-harness.js";
 
 describe("model switching and prompt behavior", () => {
 	it("enables on DeepSeek, promotes after the first tool, and restores on exit", async () => {
@@ -13,6 +13,9 @@ describe("model switching and prompt behavior", () => {
 		const deepCtx = makeContext(deepSeek, manager);
 
 		await pi.emit("model_select", { type: "model_select", model: deepSeek, previousModel: nonDeepSeek, source: "set" }, deepCtx);
+		// First real user input: classify + reduce BEFORE before_agent_start.
+		await pi.emit("input", inputEvent("build a new command-line tool"), deepCtx);
+		expect(pi.getActiveTools()).toEqual(["read", "edit", "write"]);
 		await pi.emit("before_agent_start", agentStartEvent("build a new command-line tool"), deepCtx);
 		expect(pi.getActiveTools()).toEqual(["read", "edit", "write"]);
 
@@ -25,9 +28,29 @@ describe("model switching and prompt behavior", () => {
 		await pi.emit("model_select", { type: "model_select", model: nonDeepSeek, previousModel: deepSeek, source: "set" }, nonCtx);
 		expect(pi.getActiveTools()).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
+		// Switching back to DeepSeek: re-snapshot now, re-route on the next real user input.
 		await pi.emit("model_select", { type: "model_select", model: deepSeek, previousModel: nonDeepSeek, source: "set" }, deepCtx);
+		expect(pi.setCalls).toHaveLength(callsAfterPromotion);
+		await pi.emit("input", inputEvent("fix the parser crash"), deepCtx);
 		await pi.emit("before_agent_start", agentStartEvent("fix the parser crash"), deepCtx);
 		expect(pi.getActiveTools()).toEqual(["read", "edit", "grep", "find", "ls"]);
+	});
+
+	it("keeps an explicit mode override across DeepSeek model switches", async () => {
+		const pi = new FakePi();
+		pi.install();
+		const manager = { getBranch: () => [] };
+		const flash = { id: "deepseek-v4-flash", provider: "custom" };
+		const pro = { id: "deepseek-v4-pro", provider: "custom" };
+		const ctx = makeContext(flash, manager);
+
+		const mode = pi.commands.get("deepseek-router-mode");
+		await mode?.("react", ctx);
+		const proCtx = makeContext(pro, manager);
+		await pi.emit("model_select", { type: "model_select", model: pro, previousModel: flash, source: "set" }, proCtx);
+		await pi.emit("input", inputEvent("please explain the architecture"), proCtx);
+		// Override survives a DeepSeek → DeepSeek switch: mode stays react, not weak.
+		expect(pi.getActiveTools()).toEqual(["read", "edit", "write"]);
 	});
 
 	it("adds one marked persona section and does not duplicate it", async () => {
@@ -35,6 +58,7 @@ describe("model switching and prompt behavior", () => {
 		pi.install();
 		const model = { id: "DeepSeek-v4-pro", provider: "custom" };
 		const ctx = makeContext(model);
+		await pi.emit("input", inputEvent("build a new tool"), ctx);
 		const first = await pi.emit("before_agent_start", agentStartEvent("build a new tool"), ctx);
 		const second = await pi.emit(
 			"before_agent_start",
@@ -44,5 +68,24 @@ describe("model switching and prompt behavior", () => {
 
 		expect((first as { systemPrompt: string }).systemPrompt.match(/pi-deepseek-router:start/g)).toHaveLength(1);
 		expect(second).toBeUndefined();
+	});
+
+	it("does not classify extension-generated input as a session task", async () => {
+		const pi = new FakePi();
+		pi.install();
+		const model = { id: "deepseek-chat", provider: "custom" };
+		const ctx = makeContext(model);
+
+		// Extension message before any real user task: no classification, no tool change.
+		await pi.emit("input", inputEvent("build a website", "extension"), ctx);
+		const before = await pi.emit("before_agent_start", agentStartEvent("build a website"), ctx);
+		expect(before).toBeUndefined();
+		expect(pi.getActiveTools()).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+		expect(pi.setCalls).toEqual([]);
+
+		// The first real user task still gets classified and routed.
+		await pi.emit("input", inputEvent("please inspect this"), ctx);
+		await pi.emit("before_agent_start", agentStartEvent("please inspect this"), ctx);
+		expect(pi.getActiveTools()).toEqual(["read", "edit", "grep", "find", "ls"]);
 	});
 });

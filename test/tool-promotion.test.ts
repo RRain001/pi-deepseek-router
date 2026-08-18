@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FakePi, agentStartEvent, makeContext } from "./test-harness.js";
+import { FakePi, agentStartEvent, inputEvent, makeContext } from "./test-harness.js";
 
 describe("tool promotion and session-local state", () => {
 	it("injects weak guidance ephemerally and promotes only once", async () => {
@@ -9,6 +9,7 @@ describe("tool promotion and session-local state", () => {
 		const manager = { getBranch: () => [] };
 		const model = { id: "deepseek-v4-flash", provider: "custom" };
 		const ctx = makeContext(model, manager);
+		await pi.emit("input", inputEvent("please inspect this"), ctx);
 		await pi.emit("before_agent_start", agentStartEvent("please inspect this"), ctx);
 
 		const contextResult = await pi.emit(
@@ -20,6 +21,7 @@ describe("tool promotion and session-local state", () => {
 		expect(resultMessages.filter((message) => message.customType === "pi-deepseek-router-guidance")).toHaveLength(1);
 		expect(resultMessages.at(-1)?.content).toContain("classify this task");
 
+		await pi.emit("input", inputEvent("refactor the authentication architecture"), ctx);
 		await pi.emit("before_agent_start", agentStartEvent("refactor the authentication architecture"), ctx);
 		const complexContextResult = await pi.emit(
 			"context",
@@ -41,13 +43,17 @@ describe("tool promotion and session-local state", () => {
 		const first = makeContext(model, { getBranch: () => [] });
 		const second = makeContext(model, { getBranch: () => [] });
 
+		await pi.emit("input", inputEvent("please inspect this"), first);
 		await pi.emit("before_agent_start", agentStartEvent("please inspect this"), first);
 		await pi.emit("tool_call", { type: "tool_call", toolCallId: "1", toolName: "read", input: {} }, first);
 		const afterFirst = pi.setCalls.length;
 
+		// A second session gets its own first-turn routing: reduction, not promotion.
+		await pi.emit("input", inputEvent("please inspect this"), second);
 		await pi.emit("before_agent_start", agentStartEvent("please inspect this"), second);
-		expect(pi.setCalls.length).toBe(afterFirst + 1);
+		expect(pi.getActiveTools()).toEqual(["read", "edit", "grep", "find", "ls"]);
 		await pi.emit("tool_call", { type: "tool_call", toolCallId: "2", toolName: "read", input: {} }, second);
-		expect(pi.setCalls.length).toBe(afterFirst + 2);
+		expect(pi.getActiveTools()).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+		expect(pi.setCalls.length).toBeGreaterThan(afterFirst);
 	});
 });

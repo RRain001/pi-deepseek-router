@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, InputEvent } from "@earendil-works/pi-coding-agent";
 
 import { isDeepSeekModel, isDeepSeekModelId, modelIdOf } from "./deepseek-gate.js";
 import { guidanceFor } from "./guidance.js";
@@ -8,6 +8,15 @@ import { RouterStateStore, type RouterSessionState } from "./router-state.js";
 const ROUTER_PROMPT_START = "<!-- pi-deepseek-router:start -->";
 const ROUTER_PROMPT_END = "<!-- pi-deepseek-router:end -->";
 const GUIDANCE_CUSTOM_TYPE = "pi-deepseek-router-guidance";
+
+/**
+ * Real user input sources in Pi 0.84.x (official `InputSource` type):
+ * - "interactive": TUI / print-mode / one-shot prompts
+ * - "rpc": SDK/RPC `prompt` commands
+ * Anything else ("extension") is extension-generated input and must never
+ * classify a session task or fix the automatic mode.
+ */
+const USER_INPUT_SOURCES = new Set(["interactive", "rpc"]);
 
 const TOOL_ALIASES: Record<string, string[]> = {
 	read: ["read"],
@@ -79,14 +88,21 @@ function resolveCoreTools(mode: RouterMode, available: readonly string[], origin
 	return resolved;
 }
 
+function sameNames(left: readonly string[], right: readonly string[]): boolean {
+	return left.length === right.length && left.every((name, index) => name === right[index]);
+}
+
 function setInitialTools(pi: ExtensionAPI, state: RouterSessionState): void {
 	if (state.toolsPromoted || state.originalTools === undefined || state.mode === undefined) return;
 	const selected = resolveCoreTools(state.mode, toolNames(pi), state.originalTools);
+	if (sameNames(pi.getActiveTools(), selected)) return;
 	pi.setActiveTools(selected);
 }
 
 function restoreTools(pi: ExtensionAPI, state: RouterSessionState): void {
-	if (state.originalTools !== undefined) pi.setActiveTools([...state.originalTools]);
+	if (state.originalTools === undefined) return;
+	if (sameNames(pi.getActiveTools(), state.originalTools)) return;
+	pi.setActiveTools([...state.originalTools]);
 }
 
 export default function deepSeekRouter(pi: ExtensionAPI): void {
@@ -102,10 +118,10 @@ export default function deepSeekRouter(pi: ExtensionAPI): void {
 		if (modelId === undefined || !isDeepSeekModelId(modelId)) return state;
 
 		const newlyActivated = !state.enabled || state.originalTools === undefined;
-		const previousMode = state.mode;
 		if (newlyActivated) {
 			state.originalTools = pi.getActiveTools();
 			state.toolsPromoted = false;
+			state.firstTurnApplied = false;
 		}
 		state.enabled = true;
 		state.modelId = modelId;
@@ -117,7 +133,6 @@ export default function deepSeekRouter(pi: ExtensionAPI): void {
 			state.complexity = isComplexTask(taskText) ? "complex" : "simple";
 		}
 		if (state.mode === undefined && state.override !== undefined) state.mode = state.override;
-		if (newlyActivated || state.mode !== previousMode) setInitialTools(pi, state);
 		return state;
 	}
 
@@ -140,10 +155,63 @@ export default function deepSeekRouter(pi: ExtensionAPI): void {
 		state.toolsPromoted = true;
 	}
 
+	/**
+	 * First-turn tool routing happens here, before the agent turn starts.
+	 *
+	 * Official Pi ordering (verified against 0.84.2 `AgentSession.prompt()`):
+	 * extension commands → `input` → skill/template expansion → `before_agent_start`
+	 * → agent loop → first LLM request. `setActiveToolsByName()` takes effect on
+	 * the next agent turn, so reducing tools from the `input` handler guarantees
+	 * the first LLM request of the first real user task sees the core subset.
+	 *
+	 * Source handling:
+	 * - "interactive"/"rpc" are real user input: only the session's first real
+	 *   user task fixes the automatic mode and gets the core subset.
+	 * - "extension" (sendUserMessage) never classifies a task and never reduces
+	 *   tools; it only triggers the first-turn restore if a previous first turn
+	 *   left the reduced set behind without a tool call.
+	 */
+	pi.on("input", async (event: InputEvent, ctx: ExtensionContext) => {
+		if (!isDeepSeekModel(ctx)) return;
+		const state = ensureEnabled(ctx, ctx.model);
+		const userSource = USER_INPUT_SOURCES.has(event.source);
+		state.lastInputSource = userSource ? "user" : "other";
+
+		if (userSource) {
+			const firstTask = state.currentTask === undefined;
+			if (firstTask) {
+				state.mode = state.override ?? classifyTask(event.text);
+				state.toolsPromoted = false;
+				state.firstTurnApplied = false;
+			}
+			state.currentTask = event.text;
+			state.complexity = isComplexTask(event.text) ? "complex" : "simple";
+
+			if (firstTask) {
+				setInitialTools(pi, state);
+				state.firstTurnApplied = true;
+			} else if (state.firstTurnApplied && !state.toolsPromoted) {
+				// The first turn already ran without a tool call: never let the
+				// first-turn reduction drift into a second user task.
+				restoreTools(pi, state);
+				state.toolsPromoted = true;
+			}
+		} else if (state.firstTurnApplied && !state.toolsPromoted) {
+			restoreTools(pi, state);
+			state.toolsPromoted = true;
+		}
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		if (!isDeepSeekModel(ctx)) return;
 		const task = firstUserTask(ctx);
-		ensureEnabled(ctx, ctx.model, task);
+		if (task !== undefined) {
+			// Resumed session: restore mode/persona semantics from history. This
+			// intentionally does NOT reduce tools — the first turn is in the past.
+			ensureEnabled(ctx, ctx.model, task);
+		} else {
+			ensureEnabled(ctx, ctx.model);
+		}
 	});
 
 	pi.on("model_select", async (event, ctx) => {
@@ -159,7 +227,19 @@ export default function deepSeekRouter(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!isDeepSeekModel(ctx)) return;
-		const state = ensureEnabled(ctx, ctx.model, event.prompt);
+		const state = ensureEnabled(ctx, ctx.model);
+		// Defensive fallback only: the `input` hook already ran for this prompt
+		// (same prompt() call, strictly earlier). Classify only when the input
+		// hook saw real user input but could not classify it. Extension input
+		// (lastInputSource === "other") is never classified here, so extension
+		// messages cannot fix the session mode.
+		if (state.mode === undefined && state.currentTask === undefined && state.lastInputSource === "user") {
+			state.mode = state.override ?? classifyTask(event.prompt);
+			state.currentTask = event.prompt;
+			state.complexity = isComplexTask(event.prompt) ? "complex" : "simple";
+			setInitialTools(pi, state);
+			state.firstTurnApplied = true;
+		}
 		if (state.mode === undefined) return;
 		if (event.systemPrompt.includes(ROUTER_PROMPT_START)) return;
 
@@ -229,6 +309,7 @@ export default function deepSeekRouter(pi: ExtensionAPI): void {
 					`band=${state.mode === undefined ? "pending" : bandFor(state.mode)}`,
 					`complexity=${state.complexity ?? "pending"}`,
 					`toolsPromoted=${state.toolsPromoted}`,
+					`firstTurnApplied=${state.firstTurnApplied}`,
 					`override=${state.override === undefined ? "no" : "yes"}`,
 				].join(" "),
 				"info",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FakePi, agentStartEvent, makeContext, userMessage } from "./test-harness.js";
+import { FakePi, agentStartEvent, inputEvent, makeContext, userMessage } from "./test-harness.js";
 
 describe("non-DeepSeek strict no-op", () => {
 	it("keeps prompt, messages, tools, and router state untouched", async () => {
@@ -11,11 +11,13 @@ describe("non-DeepSeek strict no-op", () => {
 		const messages = [userMessage("build a tool")];
 		const originalMessages = structuredClone(messages);
 
+		const input = await pi.emit("input", inputEvent("build a tool"), ctx);
 		const before = await pi.emit("before_agent_start", prompt, ctx);
 		const context = await pi.emit("context", { type: "context", messages }, ctx);
 		await pi.emit("tool_call", { type: "tool_call", toolCallId: "1", toolName: "read", input: {} }, ctx);
 		await pi.emit("tool_result", { type: "tool_result", toolCallId: "1", toolName: "read", input: {}, content: [], isError: false }, ctx);
 
+		expect(input).toBeUndefined();
 		expect(before).toBeUndefined();
 		expect(context).toBeUndefined();
 		expect(prompt.systemPrompt).toBe("PI BASE PROMPT");
