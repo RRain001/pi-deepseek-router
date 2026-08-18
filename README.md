@@ -24,10 +24,16 @@ For a one-run smoke test:
 pi -e ./pi-deepseek-router/src/index.ts
 ```
 
-The package is git-installable once published:
+The current release (v0.1.0) can be installed directly from Git:
 
 ```bash
-pi install git:github.com/<owner>/pi-deepseek-router@<tag-or-commit>
+pi install git:github.com/RRain001/pi-deepseek-router@v0.1.0
+```
+
+Or from the main branch:
+
+```bash
+pi install git:github.com/RRain001/pi-deepseek-router@main
 ```
 
 ## Behavior
