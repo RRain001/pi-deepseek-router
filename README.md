@@ -96,7 +96,7 @@ pi install npm:pi-deepseek-router
 备用方式 —— 直接从 GitHub 安装固定发布版：
 
 ```bash
-pi install git:github.com/RRain001/pi-deepseek-router@v0.1.2
+pi install git:github.com/RRain001/pi-deepseek-router@v0.1.3
 ```
 
 或跟踪最新 `main` 分支：

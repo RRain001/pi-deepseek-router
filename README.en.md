@@ -115,7 +115,7 @@ pi install npm:pi-deepseek-router
 Alternatively, install a pinned release directly from GitHub:
 
 ```bash
-pi install git:github.com/RRain001/pi-deepseek-router@v0.1.2
+pi install git:github.com/RRain001/pi-deepseek-router@v0.1.3
 ```
 
 Or track the latest `main` branch:
