@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext, InputEvent } from "@earendil-works
 
 import { isDeepSeekModel, isDeepSeekModelId, modelIdOf } from "./deepseek-gate.js";
 import { guidanceFor } from "./guidance.js";
-import { bandFor, classifyTask, coreFor, formatMode, isComplexTask, parseMode, personaFor, type RouterMode } from "./router-core.js";
+import { MODE_REACT, MODE_SPEC, bandFor, classifyTask, coreFor, formatMode, isComplexTask, parseMode, personaFor, type RouterMode } from "./router-core.js";
 import { RouterStateStore, type RouterSessionState } from "./router-state.js";
 
 const ROUTER_PROMPT_START = "<!-- pi-deepseek-router:start -->";
@@ -17,6 +17,73 @@ const GUIDANCE_CUSTOM_TYPE = "pi-deepseek-router-guidance";
  * classify a session task or fix the automatic mode.
  */
 const USER_INPUT_SOURCES = new Set(["interactive", "rpc"]);
+
+/**
+ * User-level router controls exposed by `/router`. `weak` is auto's internal
+ * fallback band for ambiguous tasks; `mixed` is an upstream-marked experimental
+ * band. Both remain reachable only through the legacy `/deepseek-router-mode`
+ * alias and are deliberately absent from the user-facing selector/completions.
+ */
+type UserControl = "auto" | "spec" | "react";
+
+const USER_MODE_OPTIONS = [
+	"Auto — Automatic routing (recommended)",
+	"Spec — Debug / review / maintenance",
+	"React — Build / implement / modify",
+] as const;
+
+const ROUTER_COMPLETIONS = [
+	{ value: "auto", label: "auto", description: "Automatic routing (recommended)" },
+	{ value: "spec", label: "spec", description: "Debug / review / maintenance" },
+	{ value: "react", label: "react", description: "Build / implement / modify" },
+	{ value: "status", label: "status", description: "Show router status" },
+] as const;
+
+function capitalizeBand(band: string): string {
+	return band.length === 0 ? band : band.charAt(0).toUpperCase() + band.slice(1);
+}
+
+/** Human title suffix showing the configured control and the actual band. */
+function currentStateLabel(state: RouterSessionState): string {
+	if (state.override !== undefined) return `Current: ${capitalizeBand(bandFor(state.override))}`;
+	if (state.mode === undefined) return "Current: Auto";
+	return `Current: Auto → ${capitalizeBand(bandFor(state.mode))}`;
+}
+
+function effectiveModeLabel(state: RouterSessionState): string {
+	return state.mode === undefined ? "pending" : bandFor(state.mode);
+}
+
+/** Apply one of the three user-level controls (mirrors legacy mode semantics). */
+function applyUserControl(pi: ExtensionAPI, state: RouterSessionState, control: UserControl): void {
+	if (control === "auto") {
+		delete state.override;
+		if (state.currentTask === undefined) delete state.mode;
+		else state.mode = classifyTask(state.currentTask);
+	} else {
+		state.override = control === "spec" ? MODE_SPEC : MODE_REACT;
+		state.mode = state.override;
+	}
+	setInitialTools(pi, state);
+}
+
+function controlLabel(state: RouterSessionState): string {
+	return state.override === undefined ? "auto" : bandFor(state.override);
+}
+
+function toolsLabel(state: RouterSessionState): "core" | "full" {
+	if (state.toolsPromoted) return "full";
+	if (state.firstTurnApplied) return "core";
+	return "full";
+}
+
+/** Non-DeepSeek `/router` display: informational only, never opens a selector. */
+function notifyRouterDisabled(ctx: ExtensionContext): void {
+	ctx.ui.notify(
+		["DeepSeek Router", "Disabled", 'Current model ID does not start with "deepseek".'].join("\n"),
+		"info",
+	);
+}
 
 const TOOL_ALIASES: Record<string, string[]> = {
 	read: ["read"],
@@ -286,6 +353,57 @@ export default function deepSeekRouter(pi: ExtensionAPI): void {
 		if (!isDeepSeekModel(ctx)) return;
 		ensureEnabled(ctx, ctx.model);
 		promoteTools(ctx);
+	});
+
+	pi.registerCommand("router", {
+		description: "DeepSeek Router: auto, spec, react, or status",
+		getArgumentCompletions: (prefix: string) => {
+			const filtered = ROUTER_COMPLETIONS.filter((item) => item.value.startsWith(prefix));
+			return filtered.length > 0 ? [...filtered] : null;
+		},
+		handler: async (args, ctx) => {
+			if (!isDeepSeekModel(ctx)) {
+				notifyRouterDisabled(ctx);
+				return;
+			}
+			const token = args.trim().toLowerCase();
+			if (token === "status") {
+				const state = stateFor(ctx);
+				ctx.ui.notify(
+					[
+						`enabled=${state.enabled}`,
+						`model=${modelIdOf(ctx.model) ?? "none"}`,
+						`control=${controlLabel(state)}`,
+						`activeBand=${state.mode === undefined ? "pending" : bandFor(state.mode)}`,
+						`complexity=${state.complexity ?? "pending"}`,
+						`tools=${toolsLabel(state)}`,
+					].join(" "),
+					"info",
+				);
+				return;
+			}
+
+			const state = ensureEnabled(ctx, ctx.model);
+			if (token === "") {
+				// Mode selector: user-facing surface only, exactly three modes.
+				const choice = await ctx.ui.select(
+					`DeepSeek Router · ${modelIdOf(ctx.model) ?? "unknown"}\n${currentStateLabel(state)}`,
+					[...USER_MODE_OPTIONS],
+				);
+				let control: UserControl | undefined;
+				if (choice?.startsWith("Auto")) control = "auto";
+				else if (choice?.startsWith("Spec")) control = "spec";
+				else if (choice?.startsWith("React")) control = "react";
+				if (control === undefined) return; // cancelled
+				applyUserControl(pi, state, control);
+			} else if (token === "auto" || token === "spec" || token === "react") {
+				applyUserControl(pi, state, token);
+			} else {
+				ctx.ui.notify("invalid mode: use auto, spec, react, or status", "warning");
+				return;
+			}
+			ctx.ui.notify(`mode=${effectiveModeLabel(state)} — next request applies`, "info");
+		},
 	});
 
 	pi.registerCommand("deepseek-router-status", {

@@ -75,15 +75,20 @@ is supported because its **model ID** is `deepseek-v4-flash`.
 
 Different coding tasks benefit from different interaction styles.
 
-This extension classifies the first real user task and selects one of four
-routing modes:
+This extension classifies the first real user task and exposes three
+user-level controls:
 
-| Mode | Typical task | Behavior |
+| Control | Typical task | Behavior |
 | --- | --- | --- |
-| `spec` | debugging, fixing, reviewing | inspect-first, conservative |
-| `mixed` | mixed implementation / analysis | balanced |
-| `react` | building, creating, implementing | hands-on production |
-| `weak` | ambiguous tasks | lightweight task classification + guidance |
+| `Auto` (recommended) | any | automatic classification: build → react, fix → spec, ambiguous → internal weak band |
+| `Spec` | debugging, fixing, reviewing | inspect-first, conservative |
+| `React` | building, creating, implementing | hands-on production |
+
+> `weak` is the **internal routing band** `Auto` uses for ambiguous tasks; it is
+> not a user-level mode. `mixed` is an upstream-marked experimental band
+> (explicit opt-in). Both, plus numeric modes (`0-100` / `0.0-1.0`), are only
+> settable through the legacy `/deepseek-router-mode` alias and are not shown in
+> the normal UI.
 
 The router can then adjust:
 
@@ -144,12 +149,11 @@ user input
 DeepSeek model gate
    │
    ▼
-task classification
+task classification (Auto) or explicit control (Spec / React)
    │
    ├── spec
-   ├── mixed
    ├── react
-   └── weak
+   └── weak (Auto's internal ambiguous band)
    │
    ▼
 first-turn core tools
@@ -206,7 +210,8 @@ This prevents first-turn routing state from leaking into later tasks.
 
 ## Ephemeral guidance
 
-`weak` mode can inject a small near-field guidance message into the current LLM
+When automatic classification (or a legacy setting) lands in the `weak` band,
+the router can inject a small near-field guidance message into the current LLM
 request.
 
 The message is:
@@ -246,37 +251,88 @@ override.
 
 ## Commands
 
-Show current router state:
+Normal users only need to remember one command:
 
 ```text
-/deepseek-router-status
+/router
 ```
 
-Example:
+### No arguments: mode selector
 
 ```text
-enabled=true model=deepseek-v4-flash mode=weak band=weak
-complexity=simple toolsPromoted=false firstTurnApplied=true override=no
+/router
 ```
 
-Set the routing mode manually:
+Opens a mode selector with exactly three user-level modes:
 
 ```text
-/deepseek-router-mode auto
-/deepseek-router-mode spec
-/deepseek-router-mode weak
-/deepseek-router-mode mixed
-/deepseek-router-mode react
+DeepSeek Router · deepseek-v4-flash
+Current: Auto → React
+
+Auto — Automatic routing (recommended)
+Spec — Debug / review / maintenance
+React — Build / implement / modify
 ```
 
-Numeric modes are also supported:
+The title shows the current state: the configured control (`Auto` / `Spec` /
+`React`) and the actual band. Under `Auto` it shows `Auto → <actual band>`.
+
+### With arguments
 
 ```text
-/deepseek-router-mode 0
-/deepseek-router-mode 30
-/deepseek-router-mode 100
-/deepseek-router-mode 0.3
+/router auto
+/router spec
+/router react
+/router status
 ```
+
+Typing `/router <Tab>` (or editor completion) shows:
+
+```text
+auto   Automatic routing (recommended)
+spec   Debug / review / maintenance
+react  Build / implement / modify
+status Show router status
+```
+
+### `/router status`
+
+Normal output shows only user-level fields:
+
+```text
+enabled=true model=deepseek-v4-flash control=auto activeBand=react complexity=simple tools=core
+```
+
+- `control`: `auto` / `spec` / `react`;
+- `activeBand`: `spec` / `weak` / `react`;
+- `tools`: `core` (first-turn core surface) or `full` (restored).
+
+Internal debug fields (such as `firstTurnApplied`) are not shown in normal
+status output.
+
+### Non-DeepSeek models
+
+On non-DeepSeek models `/router` does **not** open a mutable selector; it only
+displays:
+
+```text
+DeepSeek Router
+Disabled
+Current model ID does not start with "deepseek".
+```
+
+The strict no-op semantics are unchanged.
+
+### Legacy aliases (backwards-compatible, retained)
+
+The old commands remain as backwards-compatible aliases but are no longer
+promoted in the main documentation; they may be removed in a future
+major/minor version:
+
+- `/deepseek-router-status` — detailed debug status (includes internal fields
+  such as `firstTurnApplied`, `toolsPromoted`, `override`);
+- `/deepseek-router-mode` — full mode parsing, still accepting `auto`, `spec`,
+  `weak`, `mixed`, `react`, and numeric modes `0-100` / `0.0-1.0`.
 
 For non-DeepSeek models these commands do not modify agent behavior.
 
@@ -298,6 +354,33 @@ modify:
 - near-field guidance.
 
 Switching from DeepSeek to another model also restores the original tool set.
+
+---
+
+## Troubleshooting
+
+### Commands appear with `:1` / `:2` suffixes
+
+If the command list shows `deepseek-router-status:1`, `deepseek-router-mode:1`
+and the matching `:2` variants, the **same extension is loaded more than
+once**. Pi keeps all duplicate command names and assigns numeric invocation
+suffixes in load order instead of failing — so this is not the extension itself
+calling `registerCommand` twice (each command is registered exactly once).
+
+The duplication comes from having several installation sources of the same
+extension active at the same time: npm, git, and local-path installs are
+treated as distinct packages and are not deduplicated against each other. To
+locate the duplicates:
+
+```bash
+pi list        # list installed packages and their sources (user / project)
+pi config      # inspect which resources each package actually enables; Tab switches global / project
+```
+
+Then keep only one installation: edit `packages` in
+`~/.pi/agent/settings.json` (global) or `.pi/settings.json` (project) to retain
+a single source (for example keep `npm:pi-deepseek-router` and remove the git
+or local-path install), and restart Pi.
 
 ---
 

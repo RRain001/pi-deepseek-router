@@ -58,14 +58,18 @@ opencode-go/deepseek-v4-flash
 
 不同类型的编码任务适合不同的交互风格。
 
-本扩展对第一个真实用户任务做分类，并选择四种路由模式之一：
+本扩展对第一个真实用户任务做分类，并提供三种用户级控制：
 
-| 模式 | 典型任务 | 行为 |
+| 控制 | 典型任务 | 行为 |
 | --- | --- | --- |
-| `spec` | 调试、修复、审查 | 先探查后行动，保守 |
-| `mixed` | 实现与分析的混合任务 | 均衡 |
-| `react` | 构建、创建、实现 | 直接产出 |
-| `weak` | 任务类型模糊 | 轻量任务分类 + guidance |
+| `Auto`（推荐） | 任意 | 自动分类：构建类 → react，修复类 → spec，模糊类 → 内部 weak 带 |
+| `Spec` | 调试、修复、审查 | 先探查后行动，保守 |
+| `React` | 构建、创建、实现 | 直接产出 |
+
+> `weak` 是 `Auto` 在任务类型模糊时的**内部路由带**，不作为用户级模式展示；
+> `mixed` 是上游明确标记的实验带（explicit opt-in experimental band）。两者以及
+> 数值模式（0-100 / 0.0-1.0）只能通过 legacy 命令 `/deepseek-router-mode`
+> 显式设置，普通 UI 不展示。
 
 路由器可以调整：
 
@@ -126,12 +130,11 @@ pi -e ./src/index.ts
 DeepSeek 模型门控
    │
    ▼
-任务分类
+任务分类（Auto）或显式控制（Spec / React）
    │
    ├── spec
-   ├── mixed
    ├── react
-   └── weak
+   └── weak（Auto 的内部模糊带）
    │
    ▼
 首轮核心工具
@@ -186,7 +189,8 @@ write
 
 ## 近场 guidance
 
-`weak` 模式可以向当前 LLM 请求注入一条小型近场 guidance 消息。
+当自动分类或 legacy 设置落入 `weak` 带时，可以向当前 LLM 请求注入一条小型近场
+guidance 消息。
 
 该消息：
 
@@ -223,37 +227,85 @@ DeepSeek → DeepSeek
 
 ## 命令
 
-查看当前路由状态：
+普通用户只需要记住一个命令：
 
 ```text
-/deepseek-router-status
+/router
 ```
 
-例如：
+### 无参数：模式选择器
 
 ```text
-enabled=true model=deepseek-v4-flash mode=weak band=weak
-complexity=simple toolsPromoted=false firstTurnApplied=true override=no
+/router
 ```
 
-手动设置路由模式：
+弹出模式选择器，只展示三个用户级模式：
 
 ```text
-/deepseek-router-mode auto
-/deepseek-router-mode spec
-/deepseek-router-mode weak
-/deepseek-router-mode mixed
-/deepseek-router-mode react
+DeepSeek Router · deepseek-v4-flash
+Current: Auto → React
+
+Auto — Automatic routing (recommended)
+Spec — Debug / review / maintenance
+React — Build / implement / modify
 ```
 
-也支持数值模式：
+标题显示当前状态：配置控制（`Auto` / `Spec` / `React`）以及实际落到的 band。
+如果当前是 `Auto`，会显示 `Auto → <实际 band>`。
+
+### 带参数
 
 ```text
-/deepseek-router-mode 0
-/deepseek-router-mode 30
-/deepseek-router-mode 100
-/deepseek-router-mode 0.3
+/router auto
+/router spec
+/router react
+/router status
 ```
+
+输入 `/router <Tab>` 或使用编辑器补全即可看到参数提示：
+
+```text
+auto   Automatic routing (recommended)
+spec   Debug / review / maintenance
+react  Build / implement / modify
+status Show router status
+```
+
+### `/router status`
+
+普通输出只显示用户级字段：
+
+```text
+enabled=true model=deepseek-v4-flash control=auto activeBand=react complexity=simple tools=core
+```
+
+- `control`：`auto` / `spec` / `react`；
+- `activeBand`：`spec` / `weak` / `react`；
+- `tools`：`core`（首轮核心工具面）或 `full`（已恢复完整工具面）。
+
+内部调试字段（如 `firstTurnApplied`）不会出现在普通状态输出中。
+
+### 非 DeepSeek 模型
+
+`/router` 在非 DeepSeek 模型下**不会**打开可修改的选择器，只显示：
+
+```text
+DeepSeek Router
+Disabled
+Current model ID does not start with "deepseek".
+```
+
+严格 no-op 语义保持不变。
+
+### Legacy aliases（向后兼容，已保留）
+
+旧命令作为 backwards-compatible aliases 保留，主文档不再宣传；未来 major/minor
+版本可能移除：
+
+- `/deepseek-router-status` — 详细 debug 状态（含 `firstTurnApplied`、
+  `toolsPromoted`、`override` 等内部字段）；
+- `/deepseek-router-mode` — 完整模式解析，仍支持 `auto`、`spec`、`weak`、
+  `mixed`、`react` 以及数值模式 `0-100` / `0.0-1.0`。
 
 对非 DeepSeek 模型，这些命令不会改变任何代理行为。
 
@@ -274,6 +326,27 @@ complexity=simple toolsPromoted=false firstTurnApplied=true override=no
 - 近场 guidance。
 
 从 DeepSeek 切换到其他模型时，也会恢复原始工具面。
+
+## Troubleshooting
+
+### 命令出现 `:1` / `:2` 后缀
+
+如果命令列表里出现 `deepseek-router-status:1`、`deepseek-router-mode:1` 以及
+对应的 `:2` 版本，说明**同一个扩展被加载了不止一次**。Pi 对重复命令名的处理是
+保留全部并追加数字后缀（load order），而不是报错——因此这不是插件自身重复
+`registerCommand`，本扩展每个命令只注册一次。
+
+重复来自同一扩展的多个安装源同时存在：npm、git 与本地路径安装彼此视为不同包，
+不会互相去重。检查方式：
+
+```bash
+pi list        # 列出已安装包及其来源（user / project）
+pi config      # 查看每个包实际启用的资源，Tab 切换 global / project
+```
+
+找到重复条目后，在 `~/.pi/agent/settings.json`（全局）或 `.pi/settings.json`
+（项目）的 `packages` 中只保留一份安装（例如保留 `npm:pi-deepseek-router`，
+移除 git 或本地路径安装），然后重启 Pi。
 
 ---
 

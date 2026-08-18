@@ -7,11 +7,26 @@ export interface FakeModel {
 	provider: string;
 }
 
+export interface FakeCommandOptions {
+	handler: (args: string, ctx: any) => unknown;
+	getArgumentCompletions?: (prefix: string) => unknown;
+}
+
+export interface FakeUi {
+	notify: (message: string, type?: "info" | "warning" | "error") => void;
+	select: (title: string, options: string[]) => Promise<string | undefined>;
+}
+
 export class FakePi {
 	readonly handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
 	readonly commands = new Map<string, (args: string, ctx: any) => unknown>();
+	readonly commandOptions = new Map<string, FakeCommandOptions>();
 	readonly notifications: string[] = [];
 	readonly setCalls: string[][] = [];
+	/** Titles/options passed to ctx.ui.select by command handlers. */
+	readonly selectCalls: Array<{ title: string; options: string[] }> = [];
+	/** Queued choices returned by ctx.ui.select; shift() returns undefined when empty. */
+	selectQueue: Array<string | undefined> = [];
 	private active: string[];
 
 	constructor(initialTools = ["read", "bash", "edit", "write", "grep", "find", "ls"]) {
@@ -22,8 +37,9 @@ export class FakePi {
 		this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]);
 	}
 
-	registerCommand(name: string, options: { handler: (args: string, ctx: any) => unknown }): void {
+	registerCommand(name: string, options: FakeCommandOptions): void {
 		this.commands.set(name, options.handler);
+		this.commandOptions.set(name, options);
 	}
 
 	getAllTools(): Array<{ name: string }> {
@@ -43,6 +59,19 @@ export class FakePi {
 		extension(this as unknown as ExtensionAPI);
 	}
 
+	/** Build a ctx.ui implementation wired to this fake's capture queues. */
+	makeUi(): FakeUi {
+		return {
+			notify: (message) => {
+				this.notifications.push(message);
+			},
+			select: async (title, options) => {
+				this.selectCalls.push({ title, options });
+				return this.selectQueue.shift();
+			},
+		};
+	}
+
 	async emit(event: string, payload: any, ctx: any): Promise<any> {
 		let result: unknown;
 		for (const handler of this.handlers.get(event) ?? []) result = await handler(payload, ctx);
@@ -50,16 +79,15 @@ export class FakePi {
 	}
 }
 
-export function makeContext(model: FakeModel | undefined, sessionManager: object = { getBranch: () => [] }): ExtensionContext {
+export function makeContext(
+	model: FakeModel | undefined,
+	sessionManager: object = { getBranch: () => [] },
+	ui: FakeUi = { notify() {}, select: async () => undefined },
+): ExtensionContext {
 	return {
 		model,
 		sessionManager,
-		ui: {
-			notify(message: string) {
-				// The fake captures notifications through the caller's replacement below.
-				void message;
-			},
-		},
+		ui,
 	} as unknown as ExtensionContext;
 }
 
